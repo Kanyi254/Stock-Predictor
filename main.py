@@ -4,6 +4,8 @@ import plotly.graph_objects as go
 import pandas as pd 
 import yfinance as yf 
 import numpy as np 
+import talib as ta
+
 from alpha_vantage.fundamentaldata import FundamentalData
 from stocknews import StockNews
 from sklearn.model_selection import train_test_split
@@ -39,21 +41,73 @@ chart_type = st.sidebar.radio('Chart Type', ['Line', 'Candlestick'])
 timeframe = st.sidebar.selectbox('Timeframe', ['1d', '5m', '30m', '1h', '4h'])
 forecast_days = st.sidebar.number_input('Days to Forecast', min_value=1, value=7)
 
+# Indicators Selection
+indicators = st.sidebar.multiselect(
+    'Select Indicators',
+    ['SMA', 'EMA', 'RSI', 'Stochastic', 'MACD', 'Parabolic SAR', 'Fibonacci'],
+    default=['SMA', 'EMA']
+)
+
 if ticker:
     data = yf.download(ticker, start=start_date, end=end_date, interval=timeframe)
     if not data.empty:
+        # Plot Chart
+        fig = go.Figure()
+
         if chart_type == 'Line':
-            fig = px.line(data, x=data.index, y='Adj Close', title=ticker)
+            fig.add_trace(go.Scatter(x=data.index, y=data['Adj Close'], mode='lines', name=ticker))
         elif chart_type == 'Candlestick':
-            fig = go.Figure(data=[go.Candlestick(
+            fig.add_trace(go.Candlestick(
                 x=data.index,
                 open=data['Open'],
                 high=data['High'],
                 low=data['Low'],
                 close=data['Close'],
                 name=ticker
-            )])
-            fig.update_layout(title=ticker)
+            ))
+
+        # Add Indicators
+        if 'SMA' in indicators:
+            data['SMA'] = ta.SMA(data['Adj Close'], timeperiod=20)
+            fig.add_trace(go.Scatter(x=data.index, y=data['SMA'], mode='lines', name='SMA 20'))
+
+        if 'EMA' in indicators:
+            data['EMA'] = ta.EMA(data['Adj Close'], timeperiod=20)
+            fig.add_trace(go.Scatter(x=data.index, y=data['EMA'], mode='lines', name='EMA 20'))
+
+        if 'RSI' in indicators:
+            data['RSI'] = ta.RSI(data['Adj Close'], timeperiod=14)
+            fig.add_trace(go.Scatter(x=data.index, y=data['RSI'], mode='lines', name='RSI 14', yaxis='y2'))
+
+        if 'Stochastic' in indicators:
+            data['STOCH'], _ = ta.STOCHF(data['High'], data['Low'], data['Close'], fastk_period=14, slowk_period=3, slowd_period=3)
+            fig.add_trace(go.Scatter(x=data.index, y=data['STOCH'], mode='lines', name='Stochastic', yaxis='y2'))
+
+        if 'MACD' in indicators:
+            macd, macdsignal, macdhist = ta.MACD(data['Adj Close'], fastperiod=12, slowperiod=26, signalperiod=9)
+            fig.add_trace(go.Scatter(x=data.index, y=macd, mode='lines', name='MACD'))
+            fig.add_trace(go.Scatter(x=data.index, y=macdsignal, mode='lines', name='MACD Signal'))
+            fig.add_trace(go.Bar(x=data.index, y=macdhist, name='MACD Histogram', yaxis='y2'))
+
+        if 'Parabolic SAR' in indicators:
+            data['SAR'] = ta.SAR(data['High'], data['Low'], acceleration=0.02, maximum=0.2)
+            fig.add_trace(go.Scatter(x=data.index, y=data['SAR'], mode='lines', name='Parabolic SAR'))
+
+        if 'Fibonacci' in indicators:
+            max_price = data['High'].max()
+            min_price = data['Low'].min()
+            diff = max_price - min_price
+            fib_levels = {
+                '100%': max_price,
+                '61.8%': max_price - 0.618 * diff,
+                '50%': max_price - 0.5 * diff,
+                '38.2%': max_price - 0.382 * diff,
+                '0%': min_price
+            }
+            for level, price in fib_levels.items():
+                fig.add_trace(go.Scatter(x=[data.index[0], data.index[-1]], y=[price, price], mode='lines', name=f'Fib {level}'))
+
+        fig.update_layout(title=ticker, xaxis_title='Date', yaxis_title='Adj Close', yaxis2=dict(overlaying='y', side='right'))
         st.plotly_chart(fig)
 
         # Pricing Data
