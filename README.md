@@ -14,8 +14,8 @@ in the terminal, run the following command
 ```{bash}
  streamlit run main.py
 ```
-![Alt text](1.JPG)
 ![Alt text](4.JPG)
+![Alt text](1.JPG)
 ![Alt text](2.JPG)
 ![Alt text](3.JPG)
 
