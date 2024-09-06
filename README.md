@@ -11,9 +11,9 @@ in the terminal, run the following command
 ```{bash}
  streamlit run main.py
 ```
-![Alt text](1.jpg)
-![Alt text](2.jpg)
-![Alt text](3.jpg)
+![Alt text](1.JPG)
+![Alt text](2.JPG)
+![Alt text](3.JPG)
 
 ### License
 This project is licensed under the Apache2.0 License. See the LICENSE file for details.
