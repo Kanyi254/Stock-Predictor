@@ -4,12 +4,16 @@ A predictor model for the stock market.
  
 ## USage
 open your environment in terminal
-``` pip install r requirements.txt
+```{bash}
+pip install r requirements.txt
 ```
 in the terminal, run the following command
-``` streamlit run main.py
+```{bash}
+ streamlit run main.py
 ```
-![Alt text](main screen.jpg)
+![Alt text](1.jpg)
+![Alt text](2.jpg)
+![Alt text](3.jpg)
 
 ### License
 This project is licensed under the Apache2.0 License. See the LICENSE file for details.
