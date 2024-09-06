@@ -3,6 +3,9 @@
 A predictor model for the stock market.
  
 ## Usage
+go to Alpha vantage and get your own API key
+it's free with limited actions. 
+
 open your environment in terminal
 ```{bash}
 pip install r requirements.txt
