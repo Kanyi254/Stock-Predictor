@@ -2,7 +2,7 @@
 
 A predictor model for the stock market.
  
-## USage
+## Usage
 open your environment in terminal
 ```{bash}
 pip install r requirements.txt
@@ -12,6 +12,7 @@ in the terminal, run the following command
  streamlit run main.py
 ```
 ![Alt text](1.JPG)
+![Alt text](4.JPG)
 ![Alt text](2.JPG)
 ![Alt text](3.JPG)
 
