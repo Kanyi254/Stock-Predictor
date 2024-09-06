@@ -80,8 +80,9 @@ if ticker:
             fig.add_trace(go.Scatter(x=data.index, y=data['RSI'], mode='lines', name='RSI 14', yaxis='y2'))
 
         if 'Stochastic' in indicators:
-            data['STOCH'], _ = ta.STOCHF(data['High'], data['Low'], data['Close'], fastk_period=14, slowk_period=3, slowd_period=3)
-            fig.add_trace(go.Scatter(x=data.index, y=data['STOCH'], mode='lines', name='Stochastic', yaxis='y2'))
+            data['STOCH_K'], data['STOCH_D'] = ta.STOCHF(data['High'], data['Low'], data['Close'], fastk_period=14, fastd_period=3)
+            fig.add_trace(go.Scatter(x=data.index, y=data['STOCH_K'], mode='lines', name='Stochastic %K'))
+            fig.add_trace(go.Scatter(x=data.index, y=data['STOCH_D'], mode='lines', name='Stochastic %D'))
 
         if 'MACD' in indicators:
             macd, macdsignal, macdhist = ta.MACD(data['Adj Close'], fastperiod=12, slowperiod=26, signalperiod=9)
@@ -208,7 +209,7 @@ fundamental_data, news = st.tabs(["Fundamental Data", "Top 10 News"])
 with fundamental_data:
     if ticker:
         st.subheader('Balance Sheet')
-        key = '5N1BBRGV7IWAG0ZA'
+        key = 'GET YOUR OWN API KEY DUMBASS, FROM ALPHA VANTAGE WEBSITE'
         fd = FundamentalData(key, output_format='pandas')
         balance_sheet = fd.get_balance_sheet_annual(ticker)[0]
         bs = balance_sheet.T[2:]
