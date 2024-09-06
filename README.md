@@ -9,7 +9,7 @@ open your environment in terminal
 in the terminal, run the following command
 ``` streamlit run main.py
 ```
-![Alt text](mainscreen.jpg)
+![Alt text](main screen.jpg)
 
 ### License
 This project is licensed under the Apache2.0 License. See the LICENSE file for details.
