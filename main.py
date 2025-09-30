@@ -20,6 +20,9 @@ from stocknews import StockNews
 def download_data(ticker, start_date, end_date, interval):
     try:
         df = yf.download(ticker, start=start_date, end=end_date, interval=interval, progress=False)
+        # Flatten MultiIndex columns if present
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
         return df
     except Exception as e:
         st.error(f"Failed to download data: {e}")
@@ -28,19 +31,28 @@ def download_data(ticker, start_date, end_date, interval):
 @st.cache_data()
 def add_technical_indicators(df):
     d = df.copy()
-    # Basic moving averages
-    if 'Adj Close' in d.columns:
-        d['SMA20'] = ta.SMA(d['Adj Close'], timeperiod=20)
-        d['EMA20'] = ta.EMA(d['Adj Close'], timeperiod=20)
-        d['RSI14'] = ta.RSI(d['Adj Close'], timeperiod=14)
-        macd, macdsignal, macdhist = ta.MACD(d['Adj Close'], fastperiod=12, slowperiod=26, signalperiod=9)
+    # Use 'Close' if 'Adj Close' not available
+    price_col = 'Adj Close' if 'Adj Close' in d.columns else 'Close'
+    
+    if price_col in d.columns:
+        d['SMA20'] = ta.SMA(d[price_col], timeperiod=20)
+        d['EMA20'] = ta.EMA(d[price_col], timeperiod=20)
+        d['RSI14'] = ta.RSI(d[price_col], timeperiod=14)
+        macd, macdsignal, macdhist = ta.MACD(d[price_col], fastperiod=12, slowperiod=26, signalperiod=9)
         d['MACD'] = macd
         d['MACD_Signal'] = macdsignal
         d['MACD_Hist'] = macdhist
+        
+    if 'High' in d.columns and 'Low' in d.columns and 'Close' in d.columns:
         k, d_stoch = ta.STOCHF(d['High'], d['Low'], d['Close'], fastk_period=14, fastd_period=3)
         d['STOCH_K'] = k
         d['STOCH_D'] = d_stoch
         d['SAR'] = ta.SAR(d['High'], d['Low'], acceleration=0.02, maximum=0.2)
+    
+    # Ensure 'Adj Close' exists for modeling (use Close if not available)
+    if 'Adj Close' not in d.columns and 'Close' in d.columns:
+        d['Adj Close'] = d['Close']
+        
     return d
 
 
@@ -59,13 +71,20 @@ def calculate_percentage_accuracy(y_true, y_pred):
 
 def prepare_model_data(df):
     # Expects df to include 'Adj Close' and a DatetimeIndex
-    model_df = df[['Adj Close']].copy().reset_index()
+    model_df = df[['Adj Close']].copy()
+    
+    # Ensure we have a datetime index
+    if not isinstance(model_df.index, pd.DatetimeIndex):
+        return None
+    
+    model_df = model_df.reset_index()
     model_df.rename(columns={'index': 'Date'}, inplace=True)
-    if 'Date' not in model_df.columns:
-        if isinstance(df.index, pd.DatetimeIndex):
-            model_df['Date'] = df.index
-        else:
-            return None
+    
+    # Handle both 'index' and 'Date' column names from reset_index
+    date_col = 'Date' if 'Date' in model_df.columns else model_df.columns[0]
+    if date_col != 'Date':
+        model_df.rename(columns={date_col: 'Date'}, inplace=True)
+    
     model_df['Date'] = pd.to_datetime(model_df['Date'])
     model_df['Days'] = (model_df['Date'] - model_df['Date'].min()).dt.days
 
@@ -80,7 +99,14 @@ def prepare_model_data(df):
 
     # Add TA features computed from the original df (aligned by date)
     ta_df = add_technical_indicators(df)
-    ta_df = ta_df.reset_index()[['Date', 'SMA20', 'EMA20', 'RSI14', 'MACD', 'MACD_Signal']]
+    ta_df = ta_df.reset_index()
+    
+    # Handle date column name from reset_index
+    ta_date_col = 'Date' if 'Date' in ta_df.columns else ta_df.columns[0]
+    if ta_date_col != 'Date':
+        ta_df.rename(columns={ta_date_col: 'Date'}, inplace=True)
+    
+    ta_df = ta_df[['Date', 'SMA20', 'EMA20', 'RSI14', 'MACD', 'MACD_Signal']]
     model_df = model_df.merge(ta_df, on='Date', how='left')
 
     model_df.dropna(inplace=True)
@@ -126,13 +152,17 @@ def plot_price_and_indicators(df, ticker, indicators):
                         specs=[[{"secondary_y": False}], [{"secondary_y": False}], [{"secondary_y": False}]])
 
     # Price (candlestick)
-    fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name='Price'), row=1, col=1)
+    fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], 
+                                  low=df['Low'], close=df['Close'], name='Price'), 
+                  row=1, col=1)
 
     # Overlay moving averages
     if 'SMA' in indicators and 'SMA20' in df.columns:
-        fig.add_trace(go.Scatter(x=df.index, y=df['SMA20'], mode='lines', name='SMA20'), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df['SMA20'], mode='lines', name='SMA20', 
+                                line=dict(color='orange')), row=1, col=1)
     if 'EMA' in indicators and 'EMA20' in df.columns:
-        fig.add_trace(go.Scatter(x=df.index, y=df['EMA20'], mode='lines', name='EMA20'), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df['EMA20'], mode='lines', name='EMA20',
+                                line=dict(color='purple')), row=1, col=1)
 
     # Fibonacci lines (simple static between min and max in range)
     if 'Fibonacci' in indicators:
@@ -140,25 +170,47 @@ def plot_price_and_indicators(df, ticker, indicators):
         min_price = df['Low'].min()
         diff = max_price - min_price
         levels = [1.0, 0.618, 0.5, 0.382, 0.0]
-        for lvl in levels:
+        colors = ['red', 'orange', 'yellow', 'green', 'blue']
+        for lvl, color in zip(levels, colors):
             price = max_price - lvl * diff
-            fig.add_trace(go.Scatter(x=[df.index[0], df.index[-1]], y=[price, price], mode='lines', showlegend=True, name=f'Fib {lvl}'), row=1, col=1)
+            fig.add_trace(go.Scatter(x=[df.index[0], df.index[-1]], y=[price, price], 
+                                    mode='lines', showlegend=True, name=f'Fib {lvl}',
+                                    line=dict(dash='dash', color=color)), row=1, col=1)
 
     # Oscillators row
     if 'RSI' in indicators and 'RSI14' in df.columns:
-        fig.add_trace(go.Scatter(x=df.index, y=df['RSI14'], mode='lines', name='RSI14'), row=2, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df['RSI14'], mode='lines', name='RSI14',
+                                line=dict(color='blue')), row=2, col=1)
+        # Add RSI reference lines
+        fig.add_hline(y=70, line_dash="dash", line_color="red", row=2, col=1, opacity=0.5)
+        fig.add_hline(y=30, line_dash="dash", line_color="green", row=2, col=1, opacity=0.5)
+        
     if 'Stochastic' in indicators and 'STOCH_K' in df.columns:
-        fig.add_trace(go.Scatter(x=df.index, y=df['STOCH_K'], mode='lines', name='%K'), row=2, col=1)
-        fig.add_trace(go.Scatter(x=df.index, y=df['STOCH_D'], mode='lines', name='%D'), row=2, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df['STOCH_K'], mode='lines', name='%K',
+                                line=dict(color='purple')), row=2, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df['STOCH_D'], mode='lines', name='%D',
+                                line=dict(color='orange')), row=2, col=1)
+        
     if 'MACD' in indicators and 'MACD' in df.columns:
-        fig.add_trace(go.Scatter(x=df.index, y=df['MACD'], mode='lines', name='MACD'), row=2, col=1)
-        fig.add_trace(go.Scatter(x=df.index, y=df['MACD_Signal'], mode='lines', name='MACD Signal'), row=2, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df['MACD'], mode='lines', name='MACD',
+                                line=dict(color='blue')), row=2, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df['MACD_Signal'], mode='lines', name='MACD Signal',
+                                line=dict(color='red')), row=2, col=1)
 
     # Volume row
     if 'Volume' in df.columns:
-        fig.add_trace(go.Bar(x=df.index, y=df['Volume'], name='Volume'), row=3, col=1)
+        colors = ['red' if close < open else 'green' 
+                  for close, open in zip(df['Close'], df['Open'])]
+        fig.add_trace(go.Bar(x=df.index, y=df['Volume'], name='Volume', 
+                            marker_color=colors, showlegend=False), row=3, col=1)
 
-    fig.update_layout(height=900, title_text=f"{ticker} — Price & Indicators", xaxis_rangeslider_visible=False)
+    fig.update_layout(height=900, title_text=f"{ticker} — Price & Indicators", 
+                     xaxis_rangeslider_visible=False)
+    fig.update_xaxes(title_text="Date", row=3, col=1)
+    fig.update_yaxes(title_text="Price", row=1, col=1)
+    fig.update_yaxes(title_text="Indicator Value", row=2, col=1)
+    fig.update_yaxes(title_text="Volume", row=3, col=1)
+    
     return fig
 
 # -----------------------
@@ -195,15 +247,36 @@ if ticker:
 
         # Price table and stats
         st.header('Price Data & Statistics')
-        price_df = df[['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']].copy()
-        price_df['Pct Change'] = price_df['Adj Close'].pct_change()
-        price_df.dropna(inplace=True)
-        st.dataframe(price_df.tail(200))
+        
+        # Debug: show available columns
+        st.write("Available columns:", df.columns.tolist())
+        
+        # Build price_df with available columns
+        available_cols = []
+        desired_cols = ['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']
+        for col in desired_cols:
+            if col in df.columns:
+                available_cols.append(col)
+        
+        if not available_cols:
+            st.error("No price columns found in the data")
+        else:
+            price_df = df[available_cols].copy()
+            
+            # Use 'Close' if 'Adj Close' not available
+            price_col = 'Adj Close' if 'Adj Close' in price_df.columns else 'Close'
+            price_df['Pct Change'] = price_df[price_col].pct_change()
+            price_df.dropna(inplace=True)
+            st.dataframe(price_df.tail(200))
 
         annual_return = price_df['Pct Change'].mean() * 252 * 100
         annual_vol = price_df['Pct Change'].std() * np.sqrt(252) * 100
-        st.metric('Annual Return (approx)', f"{annual_return:.2f}%")
-        st.metric('Annual Volatility (approx)', f"{annual_vol:.2f}%")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric('Annual Return (approx)', f"{annual_return:.2f}%")
+        with col2:
+            st.metric('Annual Volatility (approx)', f"{annual_vol:.2f}%")
 
         # Modeling
         st.header('Forecasting (RF & XGB)')
@@ -225,11 +298,19 @@ if ticker:
             with st.spinner('Training models...'):
                 results = train_models(X_train, y_train, X_test, y_test)
 
-            for name, res in results.items():
-                st.subheader(name.upper())
-                st.write(f"MAE: {res['mae']:.4f}")
-                st.write(f"RMSE: {res['rmse']:.4f}")
-                st.write(f"MAPE: {res['mape']:.4f}%")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.subheader('Random Forest')
+                st.write(f"MAE: {results['rf']['mae']:.4f}")
+                st.write(f"RMSE: {results['rf']['rmse']:.4f}")
+                st.write(f"MAPE: {results['rf']['mape']:.2f}%")
+            
+            with col2:
+                st.subheader('XGBoost')
+                st.write(f"MAE: {results['xgb']['mae']:.4f}")
+                st.write(f"RMSE: {results['xgb']['rmse']:.4f}")
+                st.write(f"MAPE: {results['xgb']['mape']:.2f}%")
 
             # Plot predictions against actuals for test set
             pred_df = test[['Date', 'Adj Close']].copy()
@@ -237,10 +318,17 @@ if ticker:
             pred_df['XGB_Pred'] = results['xgb']['pred']
 
             fig_pred = go.Figure()
-            fig_pred.add_trace(go.Scatter(x=pred_df['Date'], y=pred_df['Adj Close'], mode='lines+markers', name='Actual'))
-            fig_pred.add_trace(go.Scatter(x=pred_df['Date'], y=pred_df['RF_Pred'], mode='lines', name='RF Pred'))
-            fig_pred.add_trace(go.Scatter(x=pred_df['Date'], y=pred_df['XGB_Pred'], mode='lines', name='XGB Pred'))
-            fig_pred.update_layout(title='Model Predictions vs Actual (Test set)', xaxis_title='Date', yaxis_title='Adj Close')
+            fig_pred.add_trace(go.Scatter(x=pred_df['Date'], y=pred_df['Adj Close'], 
+                                         mode='lines+markers', name='Actual',
+                                         line=dict(color='blue')))
+            fig_pred.add_trace(go.Scatter(x=pred_df['Date'], y=pred_df['RF_Pred'], 
+                                         mode='lines', name='RF Pred',
+                                         line=dict(color='green')))
+            fig_pred.add_trace(go.Scatter(x=pred_df['Date'], y=pred_df['XGB_Pred'], 
+                                         mode='lines', name='XGB Pred',
+                                         line=dict(color='red')))
+            fig_pred.update_layout(title='Model Predictions vs Actual (Test set)', 
+                                  xaxis_title='Date', yaxis_title='Adj Close')
             st.plotly_chart(fig_pred, use_container_width=True)
 
             # Forecast next N days using Days feature
@@ -274,9 +362,15 @@ if ticker:
             st.write(future_out)
 
             fig_future = go.Figure()
-            fig_future.add_trace(go.Scatter(x=df.index, y=df['Adj Close'], mode='lines', name='Historical'))
-            fig_future.add_trace(go.Scatter(x=future_out['Date'], y=future_out['RF'], mode='lines+markers', name='RF Forecast'))
-            fig_future.add_trace(go.Scatter(x=future_out['Date'], y=future_out['XGB'], mode='lines+markers', name='XGB Forecast'))
+            fig_future.add_trace(go.Scatter(x=df.index, y=df['Adj Close'], 
+                                           mode='lines', name='Historical',
+                                           line=dict(color='blue')))
+            fig_future.add_trace(go.Scatter(x=future_out['Date'], y=future_out['RF'], 
+                                           mode='lines+markers', name='RF Forecast',
+                                           line=dict(color='green')))
+            fig_future.add_trace(go.Scatter(x=future_out['Date'], y=future_out['XGB'], 
+                                           mode='lines+markers', name='XGB Forecast',
+                                           line=dict(color='red')))
             fig_future.update_layout(title='Forecasts', xaxis_title='Date', yaxis_title='Adj Close')
             st.plotly_chart(fig_future, use_container_width=True)
 
