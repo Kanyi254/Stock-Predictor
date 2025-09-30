@@ -8,12 +8,12 @@ it's free with limited actions.
 
 ## FOR LINUX PURPOSES
 most distros don't have Ta-lib
-'''{bash}
+```{bash}
 wget https://github.com/ta-lib/ta-lib/releases/download/v0.6.4/ta-lib_0.6.4_amd64.deb
 sudo dpkg -i ta-lib_0.6.4_amd64.deb
 sudo apt-get install -f
 python3 -m pip install --user TA-Lib
-'''
+```
 
 
 open your environment in terminal
