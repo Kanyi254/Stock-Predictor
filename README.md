@@ -6,6 +6,16 @@ A predictor model for the stock market.
 go to Alpha vantage and get your own API key
 it's free with limited actions. 
 
+## FOR LINUX PURPOSES
+most distros don't have Ta-lib
+'''{bash}
+wget https://github.com/ta-lib/ta-lib/releases/download/v0.6.4/ta-lib_0.6.4_amd64.deb
+sudo dpkg -i ta-lib_0.6.4_amd64.deb
+sudo apt-get install -f
+python3 -m pip install --user TA-Lib
+'''
+
+
 open your environment in terminal
 ```{bash}
 pip install r requirements.txt
